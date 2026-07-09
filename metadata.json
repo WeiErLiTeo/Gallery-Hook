@@ -1,0 +1,6 @@
+{
+  "name": "Gallery Hook",
+  "description": "Android intent interceptor and WebDAV apk uploader.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
