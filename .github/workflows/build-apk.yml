@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: '编译类型'
+        description: '编译类型 (debug 或 release)'
         required: true
         default: 'debug'
         type: choice
@@ -36,23 +36,29 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Licenses & Install Android 36 SDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Prepare Dummy Keystore and Env
-        run: |
-          touch .env
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-
-      - name: Build APK (Assemble Debug & Release)
+      - name: Build APK with Gradle
         run: |
           BUILD_CHOICE="${{ github.event.inputs.build_type }}"
+          if [ -z "$BUILD_CHOICE" ]; then
+            BUILD_CHOICE="debug"
+          fi
+
+          echo "Building APK for choice: $BUILD_CHOICE..."
+
           if [ "$BUILD_CHOICE" = "release" ]; then
-            gradle assembleRelease -Pandroid.builder.sdkDownload=true --stacktrace --info
+            gradle :app:assembleRelease -Pandroid.builder.sdkDownload=true --no-daemon --stacktrace
           else
-            gradle assembleDebug -Pandroid.builder.sdkDownload=true --stacktrace --info
+            gradle :app:assembleDebug -Pandroid.builder.sdkDownload=true --no-daemon --stacktrace
           fi
 
       - name: Upload APK Artifact
