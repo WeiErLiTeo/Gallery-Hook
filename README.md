@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>一款高性能 Android 系统媒体/声音录制 Intent 拦截重定向与选择器管理应用</b>
+  <b>一款高性能 Android 系统媒体/相册/声音录制 Intent 拦截重定向与 ColorOS 专属选择器管理应用</b>
 </p>
 
 <p align="center">
@@ -13,43 +13,47 @@
   <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-1.9.0-blue.svg?logo=kotlin" alt="Kotlin"></a>
   <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose" alt="Jetpack Compose"></a>
   <a href="https://www.android.com/"><img src="https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg?logo=android" alt="Platform"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-1.0.0-orange.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-1.1.0-orange.svg" alt="Version"></a>
 </p>
 
 ---
 
 ## 📖 项目简介 (Overview)
 
-**GalleryHook** 是一款轻量级、响应迅速的 Android 系统 Intent 拦截与媒体重定向工具。通过接管系统级的 `android.provider.MediaStore.RECORD_SOUND` 等调起请求，帮助用户在第三方应用（如社交软件、论坛或特定平台）请求选取文件或音频时，无缝重定向至**系统相册**、**文件管理器**或 **Google Photos (谷歌相册)**。
+**GalleryHook** 是一款轻量级、响应迅速的 Android 系统 Intent 拦截与媒体重定向工具。通过接管系统级的相册选择请求（`ACTION_GET_CONTENT` / `ACTION_PICK` / `ACTION_OPEN_DOCUMENT`）以及录音调用（`android.provider.MediaStore.RECORD_SOUND`），帮助用户在第三方应用（如微信、QQ、社交平台、特定浏览器等）请求选图或选取文件时：
 
-打破第三方应用强制调用特定系统选择器的限制，实现自由、优雅的媒体选取重定向体验。
+1. **伪装系统相册选择器**：系统弹出二选一列表（原生相册 / GalleryHook），自由决定走向；
+2. **专属定向调起**：支持一键直达 **ColorOS 专属相册 (`com.coloros.gallery3d`)**、**Google Photos (谷歌相册)**、**系统原生相册**或**文件管理器**；
+3. **安全防循环机制**：自动识别并排除自身包名，彻底杜绝递归唤醒。
 
 ---
 
 ## 🌟 核心功能亮点 (Key Features)
 
-- 🎯 **灵活拦截模式 (Interception Modes)**
-  - **每次询问 (Prompt Every Time)**: 调起时弹出 Material Design 3 风格弹窗，供用户实时选择来源。
-  - **仅系统相册 (Always Gallery)**: 自动调起系统相册选取图片。
-  - **仅文件管理器 (Always File Picker)**: 自动调起系统文件管理器选取任意文件。
+- 📸 **伪装系统相册选择器 (Photo Picker Disguise)**
+  - 注册标准 `ACTION_GET_CONTENT` 与 `ACTION_PICK` Filter。
+  - 第三方应用唤起选图时，系统弹窗自动列出 GalleryHook 与原生相册，打破强制限制。
+- 🎨 **ColorOS 专属相册支持 (ColorOS Gallery Direct-Launch)**
+  - 深度适配 OPPO / OnePlus / Realme 等机型，定向直连 `com.coloros.gallery3d` 专属组件。
+- 🎯 **五大拦截与重定向模式 (Interception Modes)**
+  - **每次询问 (Prompt Every Time)**: 调起时弹出 Material Design 3 风格对话框供您实时选择。
+  - **仅系统原生相册 (Always System Gallery)**: 自动调起 AOSP / Google 原生 Photo Picker。
+  - **仅 ColorOS 相册 (Always ColorOS Gallery)**: 自动唤起 ColorOS 专属相册选择器。
   - **仅谷歌相册 (Always Google Photos)**: 自动重定向至 Google Photos 应用。
+  - **仅系统文件管理器 (Always File Picker)**: 自动调起系统文件管理器选取任意文件。
 - ⚡ **无感透明重定向 (Seamless & Transparent)**
   - 拦截界面全透明化，在选择完成后自动返回选择结果并安全销毁任务队列，零资源残留。
-- 🎨 **沉浸式 MD3 视觉 (Material Design 3 Theme)**
-  - 采用 Edge-to-Edge 沉浸式状态栏与导航栏设计，支持 Android 12+ 动态取色 (Dynamic Color) 与暗色模式。
-- 🔒 **权限与安全控制 (Security & Permissions)**
-  - 严格使用 standard Intent Result Code 传递 Uri，并自动授予读权限 (`FLAG_GRANT_READ_URI_PERMISSION`)。
+- 🤖 **GitHub Actions 手动云编译 (Automated Cloud CI/CD)**
+  - 内置 `.github/workflows/build-apk.yml`，在 GitHub 仓库页面点击 **"Run workflow"** 即可一键自动编译并下载 Release APK。
 
 ---
 
 ## 🔬 技术原理 (Technical Architecture)
 
-`GalleryHook` 借助于 Android Activity 隐式 Intent 机制注册高优先级的 Action 过滤器，并在入口点解析事件上下文：
-
 ```
 +-------------------------------------------------------------+
 |                  Third-party App Request                    |
-|             (android.provider.MediaStore.RECORD_SOUND)      |
+|       (ACTION_GET_CONTENT / ACTION_PICK / RECORD_SOUND)     |
 +------------------------------+------------------------------+
                                |
                                v
@@ -62,11 +66,11 @@
  (Intent Triggered)                          (App Launch)
          |                                           |
   Check Intercept Mode                       Mode Switch & Storage
-  (Prompt / Gallery / File / Google Photos)  (SharedPreferences)
+  (Prompt / ColorOS / Gallery / File)        (SharedPreferences)
          |
-  ActivityResultLauncher Launch
+  Exclude self-package & Launch Target
          |
-  Return Activity.RESULT_OK
+  Return Activity.RESULT_OK with Grant URI
 ```
 
 ---
@@ -79,11 +83,13 @@ GalleryHook/
 │   └── src/
 │       ├── main/
 │       │   ├── java/com/example/
-│       │   │   ├── MainActivity.kt # 拦截响应与配置主界面
+│       │   │   ├── MainActivity.kt # 拦截响应、安全分发与配置主界面
 │       │   │   └── ui/theme/       # Material Design 3 主题与色彩配置
 │       │   └── res/            # Icon, Strings 与 AndroidManifest 配置
 │       └── test/               # 单元测试与 Robolectric 测试
-├── .github/                    # Issue 模板与 CI 配置
+├── .github/
+│   └── workflows/
+│       └── build-apk.yml       # GitHub Actions 手动/自动编译 APK 工作流
 ├── CONTRIBUTING.md             # 开源贡献指南
 ├── CHANGELOG.md                # 版本更新日志
 ├── SECURITY.md                 # 安全政策
@@ -95,25 +101,20 @@ GalleryHook/
 
 ## 🚀 快速开始与构建说明 (Getting Started)
 
-### 环境要求 (Prerequisites)
-- **Android Studio**: Iguana (2023.2.1) 或更高版本
-- **JDK Version**: JDK 17
-- **Target SDK**: Android 14 (API 34)
-- **Min SDK**: Android 8.0 (API 26)
+### 方式一：GitHub Actions 一键云编译（推荐）
+1. 将本代码库 Fork 或推送至您的 GitHub 仓库；
+2. 打开仓库顶部的 **Actions** 标签页；
+3. 在左侧选择 **Build & Release APK** 工作流；
+4. 点击右侧 **Run workflow**，选择 `release` 分支，点击执行；
+5. 构建完成后，在页面下方的 **Artifacts** 区域即可一键下载已编译好的 APK 安装包。
 
-### 本地编译步骤 (Build Steps)
-
-1. 克隆代码库：
-   ```bash
-   git clone https://github.com/your-username/GalleryHook.git
-   cd GalleryHook
-   ```
-
-2. 使用 Gradle 编译 Debug/Release APK：
-   ```bash
-   ./gradlew assembleRelease
-   ```
-   编译生成的 APK 位于：`app/build/outputs/apk/release/app-release.apk`
+### 方式二：本地 Gradle 编译
+```bash
+git clone https://github.com/your-username/GalleryHook.git
+cd GalleryHook
+./gradlew assembleRelease
+```
+编译生成的 APK 位于：`app/build/outputs/apk/release/app-release.apk`
 
 ---
 
