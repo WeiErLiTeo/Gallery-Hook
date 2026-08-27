@@ -32,23 +32,18 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
 
-      - name: Ensure Gradle Wrapper Permission
-        run: |
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-          fi
-
-      - name: Build with Gradle
+      - name: Build APK with Gradle
         run: |
           if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
-            ./gradlew assembleDebug --stacktrace
+            gradle assembleDebug --stacktrace
           else
-            ./gradlew assembleRelease --stacktrace
+            gradle assembleRelease --stacktrace
           fi
 
       - name: Upload APK Artifact
