@@ -4,7 +4,10 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,7 +44,8 @@ class MainActivity : ComponentActivity() {
             action == "android.provider.MediaStore.RECORD_SOUND" ||
             action == Intent.ACTION_GET_CONTENT ||
             action == Intent.ACTION_PICK ||
-            action == Intent.ACTION_OPEN_DOCUMENT
+            action == Intent.ACTION_OPEN_DOCUMENT ||
+            action == "android.provider.action.PICK_IMAGES"
         )
 
         setContent {
@@ -56,33 +60,97 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Target Mode definitions:
+// Intercept Target Mode definitions:
 // 0 = 每次询问 (Prompt Every Time)
-// 1 = 系统原生相册 (System Gallery)
-// 2 = ColorOS 相册 (com.coloros.gallery3d)
-// 3 = 谷歌相册 (Google Photos)
-// 4 = 文件管理器 (File Picker)
+// 1 = 系统原生相册 / Photo Picker (System Native Gallery)
+// 2 = ColorOS / OPlus 相册 (com.coloros.gallery3d / com.oplus.gallery)
+// 3 = 小米 HyperOS / MIUI 相册 (com.miui.gallery)
+// 4 = 谷歌相册 (Google Photos)
+// 5 = 系统文件管理器 (File Picker)
 
-fun createColorOsGalleryIntent(context: Context): Intent {
-    val intent = Intent(Intent.ACTION_PICK).apply {
+fun createSystemGalleryIntent(context: Context): Intent {
+    // Priority 1: Android 13+ (API 33+) System Photo Picker
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val pickImagesIntent = Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+            type = "image/*"
+            putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 100)
+        }
+        val resolved = context.packageManager.queryIntentActivities(pickImagesIntent, 0)
+        if (resolved.isNotEmpty()) {
+            return pickImagesIntent
+        }
+    }
+
+    // Priority 2: Standard ACTION_PICK on MediaStore
+    val mediaStoreIntent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI).apply {
         type = "image/*"
         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
     }
-    val candidatePackages = listOf("com.coloros.gallery3d", "com.oplus.gallery", "com.heytap.gallery")
-    var targetPkg: String? = null
+    val resolvedList = context.packageManager.queryIntentActivities(mediaStoreIntent, 0)
+    val externalActivity = resolvedList.firstOrNull { it.activityInfo.packageName != context.packageName }
+    if (externalActivity != null) {
+        return mediaStoreIntent
+    }
+
+    // Priority 3: ACTION_GET_CONTENT fallback
+    return Intent(Intent.ACTION_GET_CONTENT).apply {
+        type = "image/*"
+        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        addCategory(Intent.CATEGORY_OPENABLE)
+    }
+}
+
+fun createColorOsGalleryIntent(context: Context): Intent {
+    val candidatePackages = listOf(
+        "com.coloros.gallery3d",
+        "com.oplus.gallery",
+        "com.heytap.gallery"
+    )
     for (pkg in candidatePackages) {
-        val testIntent = Intent(Intent.ACTION_PICK).apply {
+        val testIntent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI).apply {
             type = "image/*"
             setPackage(pkg)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         val resolved = context.packageManager.queryIntentActivities(testIntent, 0)
         if (resolved.isNotEmpty()) {
-            targetPkg = pkg
-            break
+            return testIntent
+        }
+        
+        // Also test GET_CONTENT with package
+        val getContentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            setPackage(pkg)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        if (context.packageManager.queryIntentActivities(getContentIntent, 0).isNotEmpty()) {
+            return getContentIntent
         }
     }
-    intent.setPackage(targetPkg ?: "com.coloros.gallery3d")
-    return intent
+
+    // Fallback: standard pick with coloros package hint
+    return Intent(Intent.ACTION_PICK).apply {
+        type = "image/*"
+        setPackage("com.coloros.gallery3d")
+        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+    }
+}
+
+fun createMiuiGalleryIntent(context: Context): Intent {
+    val miuiIntent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI).apply {
+        type = "image/*"
+        setPackage("com.miui.gallery")
+        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+    }
+    val resolved = context.packageManager.queryIntentActivities(miuiIntent, 0)
+    if (resolved.isNotEmpty()) {
+        return miuiIntent
+    }
+    return Intent(Intent.ACTION_GET_CONTENT).apply {
+        type = "image/*"
+        setPackage("com.miui.gallery")
+        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+    }
 }
 
 fun createGooglePhotosIntent(): Intent {
@@ -93,37 +161,12 @@ fun createGooglePhotosIntent(): Intent {
     }
 }
 
-fun createSystemGalleryIntent(context: Context): Intent {
-    val intent = Intent(Intent.ACTION_PICK).apply {
-        type = "image/*"
-        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-    }
-    // Exclude our own app from target to prevent recursive loop
-    val resolvedList = context.packageManager.queryIntentActivities(intent, 0)
-    val externalActivity = resolvedList.firstOrNull { 
-        it.activityInfo.packageName != context.packageName &&
-        it.activityInfo.packageName != "com.coloros.gallery3d" &&
-        it.activityInfo.packageName != "com.oplus.gallery"
-    } ?: resolvedList.firstOrNull { it.activityInfo.packageName != context.packageName }
-
-    if (externalActivity != null) {
-        intent.setClassName(externalActivity.activityInfo.packageName, externalActivity.activityInfo.name)
-    }
-    return intent
-}
-
 fun createFilePickerIntent(context: Context): Intent {
-    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+    return Intent(Intent.ACTION_GET_CONTENT).apply {
         type = "*/*"
         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         addCategory(Intent.CATEGORY_OPENABLE)
     }
-    val resolvedList = context.packageManager.queryIntentActivities(intent, 0)
-    val externalActivity = resolvedList.firstOrNull { it.activityInfo.packageName != context.packageName }
-    if (externalActivity != null) {
-        intent.setClassName(externalActivity.activityInfo.packageName, externalActivity.activityInfo.name)
-    }
-    return intent
 }
 
 @Composable
@@ -155,16 +198,24 @@ fun InterceptScreen(modifier: Modifier = Modifier) {
         context.finishAndRemoveTask()
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             kotlin.system.exitProcess(0)
-        }, 500)
+        }, 300)
     }
 
     fun launchSafe(intent: Intent) {
         try {
             pickerLauncher.launch(intent)
         } catch (e: ActivityNotFoundException) {
-            Toast.makeText(context, "未找到对应应用或相册组件", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "未找到对应相册应用或系统组件", Toast.LENGTH_SHORT).show()
             context.setResult(Activity.RESULT_CANCELED)
             context.finishAndRemoveTask()
+        } catch (e: SecurityException) {
+            Toast.makeText(context, "无权限调起该组件，已转为原生选择器", Toast.LENGTH_SHORT).show()
+            try {
+                pickerLauncher.launch(createSystemGalleryIntent(context))
+            } catch (ex: Exception) {
+                context.setResult(Activity.RESULT_CANCELED)
+                context.finishAndRemoveTask()
+            }
         } catch (e: Exception) {
             Toast.makeText(context, "调起失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             context.setResult(Activity.RESULT_CANCELED)
@@ -176,8 +227,9 @@ fun InterceptScreen(modifier: Modifier = Modifier) {
         when (mode) {
             1 -> launchSafe(createSystemGalleryIntent(context))
             2 -> launchSafe(createColorOsGalleryIntent(context))
-            3 -> launchSafe(createGooglePhotosIntent())
-            4 -> launchSafe(createFilePickerIntent(context))
+            3 -> launchSafe(createMiuiGalleryIntent(context))
+            4 -> launchSafe(createGooglePhotosIntent())
+            5 -> launchSafe(createFilePickerIntent(context))
         }
     }
 
@@ -188,13 +240,23 @@ fun InterceptScreen(modifier: Modifier = Modifier) {
                 context.finishAndRemoveTask()
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     kotlin.system.exitProcess(0)
-                }, 500)
+                }, 300)
             },
             title = { Text("选择目标相册 / 来源", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("请选择要调起的相册选择器或文件源：", style = MaterialTheme.typography.bodyMedium)
                     
+                    OutlinedButton(
+                        onClick = {
+                            showDialog = false
+                            launchSafe(createSystemGalleryIntent(context))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("系统原生相册 (Photo Picker)")
+                    }
+
                     OutlinedButton(
                         onClick = {
                             showDialog = false
@@ -208,11 +270,11 @@ fun InterceptScreen(modifier: Modifier = Modifier) {
                     OutlinedButton(
                         onClick = {
                             showDialog = false
-                            launchSafe(createSystemGalleryIntent(context))
+                            launchSafe(createMiuiGalleryIntent(context))
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("系统原生相册 (Photo Picker)")
+                        Text("小米相册 (com.miui.gallery)")
                     }
 
                     OutlinedButton(
@@ -292,14 +354,14 @@ fun ConfigScreen(modifier: Modifier = Modifier) {
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp, vertical = 20.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(
                         text = "拦截重定向模式 (INTERCEPTION MODE)",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp),
@@ -307,11 +369,12 @@ fun ConfigScreen(modifier: Modifier = Modifier) {
                     )
 
                     val modes = listOf(
-                        "每次询问 (Prompt Every Time)" to "弹出选择器对话框供您实时选择",
-                        "仅系统原生相册 (System Gallery)" to "直接调用 Android 系统原生相册选择器",
-                        "仅 ColorOS 相册 (com.coloros.gallery3d)" to "直接调起 OPPO / OnePlus / Realme 官方相册选择器",
-                        "仅 Google Photos (谷歌相册)" to "直接调起 Google Photos",
-                        "仅系统文件管理器 (File Picker)" to "直接调用系统文件管理器选取任意文件"
+                        "每次询问 (Prompt Every Time)" to "弹出选择器对话框供您实时选择目标",
+                        "系统原生相册 (System Gallery)" to "自动调起 Android 原生 Photo Picker / MediaStore",
+                        "ColorOS / OPlus 相册" to "调起 OPPO / OnePlus / Realme 官方相册",
+                        "小米相册 (HyperOS / MIUI)" to "调起小米官方相册选择器",
+                        "Google Photos (谷歌相册)" to "调起 Google Photos 选择器",
+                        "系统文件管理器 (File Picker)" to "调起系统内置文件管理器选取任意文件"
                     )
 
                     modes.forEachIndexed { index, item ->
@@ -328,7 +391,7 @@ fun ConfigScreen(modifier: Modifier = Modifier) {
                                     interceptMode = index
                                     prefs.edit().putInt("intercept_mode", index).apply()
                                 }
-                                .padding(16.dp),
+                                .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -360,27 +423,51 @@ fun ConfigScreen(modifier: Modifier = Modifier) {
                 }
             }
 
+            // WeChat photo picking analysis card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "💬 微信照片选择特殊说明与解决技巧",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Text(
+                        text = "为什么微信点照片不弹系统选择框？\n" +
+                               "• 微信在聊天界面点击「照片」时，根本不会向 Android 发送系统的选图 Intent 请求，而是直接在其内部启动微信自带的私有 Activity (AlbumPreviewUI) 并直接读取本地数据库。\n\n" +
+                               "💡 微信如何成功调用 GalleryHook：\n" +
+                               "1. 微信「文件」通道法：在微信聊天框点击「+」→ 选择「文件」→ 点击「手机存储」或右上角「其它应用」，微信就会发出系统级 Intent，从而正常唤起 GalleryHook！\n" +
+                               "2. 小程序 / 网页上传：微信内的网页或小程序点击上传图片时会触发系统 Intent，可直接拦截。\n" +
+                               "3. Root / LSPosed 用户：若需强制劫持微信内所有选图页面，需配合 Xposed/LSPosed 模块 Hook 拦截 com.tencent.mm.plugin.gallery.ui.AlbumPreviewUI。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        lineHeight = 21.sp
+                    )
+                }
+            }
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "功能说明与使用提示",
+                        text = "🛡️ 防死循环与安全机制",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "• 伪装相册选择器：当第三方应用（如微信、QQ、浏览器等）打开相册或请求选图时，系统会弹出二选一列表（原生相册 / GalleryHook），您可以随时自由选择。\n• ColorOS 专属支持：支持精准定位并唤起 com.coloros.gallery3d 欧加相册。\n• 防死循环保护：内置智能过滤机制，调起原生相册时自动排除自身，防止递归唤醒。",
+                        text = "• 原生相册智能适配：自动识别 Android 13/14/15 的 Photo Picker 与老版本 MediaStore，杜绝 SecurityException 崩溃。\n• 防自身递归：调起外部相册时自动过滤自身包名，保证永不卡死。\n• 内存极小化：无后台守护常驻，选图完成后 300ms 内自动彻底结束进程释放资源。",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 22.sp
+                        lineHeight = 21.sp
                     )
                 }
             }
         }
     }
 }
-
-

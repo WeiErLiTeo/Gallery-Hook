@@ -18,6 +18,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK
@@ -59,9 +62,31 @@ jobs:
             gradle :app:assembleRelease -Pandroid.builder.sdkDownload=true --no-daemon
           fi
 
-      - name: Upload APK
+      - name: Organize APK Output
+        run: |
+          mkdir -p output_apk
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output_apk/GalleryHook.apk \;
+          echo "APK prepared: $(ls -lh output_apk/GalleryHook.apk)"
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: GalleryHook-APK
-          path: app/build/outputs/apk/**/*.apk
+          path: output_apk/GalleryHook.apk
           if-no-files-found: error
+
+      - name: Publish Direct APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: latest
+          name: GalleryHook 最新直装包 (APK)
+          body: |
+            ### 🚀 GalleryHook 最新安装包
+            - **文件名**: `GalleryHook.apk`（点击下方 Assets 直接下载安装包，无需解压 ZIP）
+            - **特性**: Release 瘦身优化版，移除调试符号与冗余日志，体积极致轻量。
+          files: output_apk/GalleryHook.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
