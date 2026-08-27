@@ -1,121 +1,127 @@
-# GalleryHook 🪝
+# GalleryHook
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher.png" width="96" alt="GalleryHook Logo" />
+  <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher.png" width="96" alt="GalleryHook Icon" />
 </p>
 
 <p align="center">
-  <b>平时微信/QQ选图被恶心到了？用这个小工具把选图和录音请求重定向到你想用的相册或文件管理器。</b>
+  <b>Android 平台轻量级多媒体与相册选择重定向工具</b>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-1.9.0-blue.svg?logo=kotlin" alt="Kotlin"></a>
-  <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose" alt="Jetpack Compose"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-1.1.0-orange.svg" alt="Version"></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Language-Kotlin-7F52FF.svg?logo=kotlin&logoColor=white" alt="Kotlin"></a>
+  <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white" alt="Jetpack Compose"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-1.2.0-green.svg" alt="Version"></a>
 </p>
 
 ---
 
-## 💡 这个 App 是干嘛的？
+## 概述
 
-很多第三方软件在调用选图、传文件或者某些特殊录音接口时，经常强制弹出难用的内置界面或者指定的选择器。
-
-**GalleryHook** 的作用非常简单直接：
-1. **伪装成系统相册**：当别的 App 要选图时，系统会弹窗让你在“原生相册”和“GalleryHook”之间二选一。
-2. **想调谁就调谁**：你可以让它每次弹窗问你，也可以直接锁死调起 **ColorOS 官方相册**、**原生相册**、**Google 相册** 或者 **系统文件管理器**。
-3. **选完就走**：选好图片/文件后直接把结果原路塞回给调用的 App，然后自动退出后台，不占内存不耗电。
+**GalleryHook** 是一款针对 Android 系统的媒体选择重定向工具。通过注册系统标准隐式 Intent 过滤器，在第三方应用发起媒体文件选择请求时作为选择器候选呈现，允许用户将选图请求透明分发至指定的相册应用（如 ColorOS 相册、Google Photos 或系统原生 Photo Picker），并在选图完成后将媒体数据回调给调用方并立即销毁自身进程。
 
 ---
 
-## 🛠️ 支持的几个功能
+## 核心特性
 
-- **伪装相册选择器**：第三方 App 调起选图时，系统会把它当成相册列出来。
-- **ColorOS 专属相册支持**：能直接调起 OPPO / OnePlus / Realme 的官方相册（`com.coloros.gallery3d`）。
-- **五种拦截模式随便选**：
-  - 💬 **每次询问**：每次选图时弹个小菜单让你自己挑用哪个。
-  - 🖼️ **仅系统相册**：直接走系统自带的原生选图器。
-  - 🎨 **仅 ColorOS 相册**：直接打开欧加系统的官方相册。
-  - 🌐 **仅 Google Photos**：直接唤起谷歌相册。
-  - 📁 **仅文件管理器**：直接打开系统的文件浏览界面选任意文件。
-- **防套娃防死循环**：自己调系统相册时会自动排除自己，绝不会出现无限唤醒自己的 Bug。
-- **支持 GitHub 自动打包**：仓库里配好了 Actions，点一下网页按钮就能直接下载打包好的 APK，不需要自己装 Android Studio 编译。
+- **标准 Intent 劫持与分发**：注册响应 `ACTION_GET_CONTENT`、`ACTION_PICK`、`ACTION_OPEN_DOCUMENT` 及 `ACTION_PICK_IMAGES`。
+- **目标相册定向**：
+  - **每次询问**：唤起对话框供用户即时选择目标相册组件。
+  - **ColorOS / OPlus 相册**：定向唤起 `com.coloros.gallery3d`。
+  - **Google Photos**：定向唤起 `com.google.android.apps.photos`。
+  - **系统原生相册**：调用 Android Photo Picker / MediaStore。
+- **无状态与零后台开销**：
+  - 采用无常驻设计，选图流程结束（成功、取消或异常）即刻触发 `finishAndRemoveTask()` 并调用 `Process.killProcess()` 物理终止自身进程。
+  - 调起外部相册时自动过滤自身包名，杜绝 Intent 递归死循环。
+- **安全与权限透明**：
+  - 通过 `FLAG_GRANT_READ_URI_PERMISSION` 透传 URI 读取权限，无需申请额外存储敏感权限。
 
 ---
 
-## 🔬 技术原理（写给开发者看的）
-
-原理就是利用 Android 的隐式 Intent 机制接管以下标准 Action：
-- `android.intent.action.GET_CONTENT`
-- `android.intent.action.PICK`
-- `android.intent.action.OPEN_DOCUMENT`
-- `android.provider.MediaStore.RECORD_SOUND`
+## 系统工作原理
 
 ```
-+-------------------------------------------------------------+
-|                  第三方 App 发起调起请求                       |
-|       (ACTION_GET_CONTENT / ACTION_PICK / RECORD_SOUND)     |
-+------------------------------+------------------------------+
-                               |
-                               v
-                     [ GalleryHook MainActivity ]
-                               |
-         +---------------------+---------------------+
-         |                                           |
-         v                                           v
- [ 拦截界面 (透明背景) ]                       [ 普通打开进入设置页 ]
-         |                                           |
-  读取 SharedPreferences 中的目标模式            切换模式 & 保存配置
-  (弹窗询问 / ColorOS / 原生 / 谷歌 / 文件)
-         |
-  排除自身包名，通过 ActivityResultLauncher 调起目标
-         |
-  拿到 Uri 并带 FLAG_GRANT_READ_URI_PERMISSION 返回给原 App
++--------------------------------------------------------------------+
+|                       调用方应用 (Client App)                        |
+|   发起隐式 Intent (ACTION_GET_CONTENT / ACTION_PICK / OPEN_DOCUMENT)  |
++---------------------------------+----------------------------------+
+                                  |
+                                  v
++--------------------------------------------------------------------+
+|                  Android 系统选择器 (ResolverActivity)                |
+|                    [ 系统媒体 / GalleryHook / 相机 ]                 |
++---------------------------------+----------------------------------+
+                                  | 用户选择 GalleryHook
+                                  v
++--------------------------------------------------------------------+
+|                       GalleryHook MainActivity                     |
+|  - 读取持久化配置 (SharedPreferences: intercept_mode)                 |
+|  - 构造显式 Intent (ColorOS / Google Photos / 原生相册)              |
+|  - 启动目标 Activity (ActivityResultContracts)                      |
++---------------------------------+----------------------------------+
+                                  |
+                                  v
++--------------------------------------------------------------------+
+|                         目标相册应用                                 |
+|  - 用户完成选图，回传 ClipData / Uri                                 |
++---------------------------------+----------------------------------+
+                                  |
+                                  v
++--------------------------------------------------------------------+
+|                       GalleryHook 回调处理                         |
+|  - setattr Intent(RESULT_OK, data, FLAG_GRANT_READ_URI_PERMISSION) |
+|  - finishAndRemoveTask()                                           |
+|  - Process.killProcess(Process.myPid()) (彻底终止进程)             |
++--------------------------------------------------------------------+
 ```
 
 ---
 
-## 📂 项目目录
+## Android 13+ Photo Picker 机制说明
+
+### 1. 标准 `ACTION_GET_CONTENT` / `ACTION_PICK`
+在此类接口中，系统会正常触发应用选择列表，用户可直接选择 **GalleryHook** 进行路由。
+
+### 2. 现代 `MediaStore.ACTION_PICK_IMAGES` (`PickVisualMedia`)
+在 Android 13 (API 33) 及更高版本中，部分应用（如 Gemini、ChatGPT 等）直接调用系统级 Photo Picker 组件 (`com.google.android.providers.media.module`)。
+- **无 Root 环境**：系统框架层将此类请求直接路由给系统组件，第三方应用无法强制覆盖系统签名级的直接调用；如果需要在类似应用中触发选择器，可通过「文件」上传入口发起系统级 Document/Content 请求。
+- **Root / LSPosed 环境**：可通过 Hook 框架（如 Xposed）拦截客户端的 `PickVisualMedia` 调用并转换为标准 `ACTION_GET_CONTENT`。
+
+---
+
+## 项目结构
 
 ```
 GalleryHook/
-├── app/                        # Android 应用主工程
-│   └── src/
-│       ├── main/
-│       │   ├── java/com/example/
-│       │   │   ├── MainActivity.kt # 拦截分发与设置界面逻辑
-│       │   │   └── ui/theme/       # Compose 主题配置
-│       │   └── res/            # 图标、文字与 Manifest 配置
-├── .github/
-│   └── workflows/
-│       └── build-apk.yml       # GitHub Actions 网页手动打包脚本
-├── CONTRIBUTING.md             # 贡献指南
-├── CHANGELOG.md                # 更新记录
-├── LICENSE                     # 开源协议 (Apache 2.0)
-└── README.md                   # 说明文档
+├── app/
+│   ├── src/main/
+│   │   ├── java/com/example/
+│   │   │   ├── MainActivity.kt     # 核心路由逻辑与设置界面
+│   │   │   └── ui/theme/           # Material 3 主题定义
+│   │   └── AndroidManifest.xml     # Intent 过滤器与包名查询配置
+│   └── build.gradle.kts            # 构建配置 (R8 Minify & Shrink)
+├── .github/workflows/
+│   └── build-apk.yml               # CI 构建与 GitHub Releases 发布流程
+├── LICENSE                         # Apache 2.0 许可证
+└── README.md                       # 技术与使用文档
 ```
 
 ---
 
-## 📦 怎么下载 / 编译 APK？
+## 构建与部署
 
-### 方式一：直接在 GitHub 网页上打包下载（最省事）
-1. 把这个项目 Fork 或者传到你自己的 GitHub 仓库；
-2. 打开仓库顶部的 **Actions** 菜单；
-3. 点击左侧的 **Build & Release APK**；
-4. 点击右边的 **Run workflow** 按钮开始打包；
-5. 等两三分钟编译完成后，在页面下方的 **Artifacts** 处点击就能下载 APK 安装包了。
-
-### 方式二：本地用命令行编译
+### 本地编译
 ```bash
-git clone https://github.com/your-username/GalleryHook.git
-cd GalleryHook
-gradle :app:assembleRelease
+./gradlew :app:assembleRelease
 ```
-编译好的安装包就在 `app/build/outputs/apk/release/` 目录下。
+产物输出路径：`app/build/outputs/apk/release/app-release.apk`
+
+### CI 自动化构建
+项目集成了 GitHub Actions 流水线，在触发 workflow 时会自动编译并发布免压缩的直装 APK 至 Releases。
 
 ---
 
-## 📄 开源协议
+## 许可证
 
-基于 [Apache License 2.0](LICENSE) 协议开源。
+本项目基于 [Apache License 2.0](LICENSE) 协议开源。
