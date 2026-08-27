@@ -35,29 +35,41 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
+
+      - name: Accept Android Licenses & Install Build-Tools
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-34" "platforms;android-35" "platforms;android-UpsideDownCake" "build-tools;34.0.0" || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Generate Dummy Debug Keystore if needed
+      - name: Generate Dummy Keystore and Env
         run: |
           if [ ! -f "debug.keystore" ]; then
             keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
+          touch .env
 
       - name: Build APK with Gradle
         run: |
-          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
-            gradle :app:assembleDebug --stacktrace
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          if [ -z "$BUILD_TYPE" ]; then
+            BUILD_TYPE="release"
+          fi
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            gradle :app:assembleDebug --no-configuration-cache --stacktrace
           else
-            gradle :app:assembleRelease --stacktrace
+            gradle :app:assembleRelease --no-configuration-cache --stacktrace
           fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GalleryHook-${{ github.event.inputs.build_type || 'release' }}-APK
+          name: GalleryHook-APK
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
