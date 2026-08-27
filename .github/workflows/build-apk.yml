@@ -27,54 +27,54 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Java JDK 17
+      - name: Set up Java JDK 21 (Required for AGP 9+)
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Prepare Signing Key and Environment
+      - name: Prepare Signing Keystore & Environment
         run: |
-          # 1. 复制 .env.example 或创建 .env 防止 secrets 插件解析失败
+          # 准备 .env 文件，防止 secrets-gradle-plugin 报错
           if [ -f ".env.example" ]; then
             cp .env.example .env
           else
             touch .env
           fi
-          
-          # 2. 生成 CI 专用的 debug.keystore，防止签名配置找不到文件报错
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Accept Android SDK Licenses & Build APK
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          # 解码仓库中自带的 debug.keystore.base64 或生成新证书
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build APK with Gradle
         run: |
-          # 自动接受 Android SDK 协议
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          
-          # 判断编译类型
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
           if [ -z "$BUILD_TYPE" ]; then
             BUILD_TYPE="release"
           fi
-          
-          echo "Building APK with target: $BUILD_TYPE..."
-          
+
+          echo "Starting build with type: $BUILD_TYPE..."
+
           if [ "$BUILD_TYPE" = "debug" ]; then
-            gradle :app:assembleDebug -Pandroid.builder.sdkDownload=true --no-configuration-cache --stacktrace
+            gradle :app:assembleDebug -Pandroid.builder.sdkDownload=true --stacktrace
           else
-            gradle :app:assembleRelease -Pandroid.builder.sdkDownload=true --no-configuration-cache --stacktrace
+            gradle :app:assembleRelease -Pandroid.builder.sdkDownload=true --stacktrace
           fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GalleryHook-APK
+          name: GalleryHook-${{ github.event.inputs.build_type || 'release' }}-APK
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
