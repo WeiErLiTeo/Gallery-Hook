@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: '选择编译类型 (Build Type)'
+        description: '编译类型 (Build Type)'
         required: true
         default: 'release'
         type: choice
@@ -33,38 +33,43 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: '11076708'
-
-      - name: Accept Android Licenses & Install Build-Tools
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-34" "platforms;android-35" "platforms;android-UpsideDownCake" "build-tools;34.0.0" || true
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Generate Dummy Keystore and Env
+      - name: Prepare Signing Key and Environment
         run: |
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          # 1. 复制 .env.example 或创建 .env 防止 secrets 插件解析失败
+          if [ -f ".env.example" ]; then
+            cp .env.example .env
+          else
+            touch .env
           fi
-          touch .env
+          
+          # 2. 生成 CI 专用的 debug.keystore，防止签名配置找不到文件报错
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Build APK with Gradle
+      - name: Accept Android SDK Licenses & Build APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
+          # 自动接受 Android SDK 协议
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          
+          # 判断编译类型
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
           if [ -z "$BUILD_TYPE" ]; then
             BUILD_TYPE="release"
           fi
+          
+          echo "Building APK with target: $BUILD_TYPE..."
+          
           if [ "$BUILD_TYPE" = "debug" ]; then
-            gradle :app:assembleDebug --no-configuration-cache --stacktrace
+            gradle :app:assembleDebug -Pandroid.builder.sdkDownload=true --no-configuration-cache --stacktrace
           else
-            gradle :app:assembleRelease --no-configuration-cache --stacktrace
+            gradle :app:assembleRelease -Pandroid.builder.sdkDownload=true --no-configuration-cache --stacktrace
           fi
 
       - name: Upload APK Artifact
